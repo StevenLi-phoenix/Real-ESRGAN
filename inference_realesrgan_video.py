@@ -252,22 +252,31 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
     fps = reader.get_fps()
     writer = Writer(args, audio, height, width, video_save_path, fps)
 
-    pbar = tqdm(total=len(reader), unit='frame', desc='inference')
+    pbar = tqdm(total=len(reader), unit='frame', desc='Total Frames')
     while True:
         img = reader.get_frame()
         if img is None:
             break
 
+        frame_bar = tqdm(total=1, desc=f'Frame {pbar.n + 1}', unit='tile', leave=False)
+        output = None
         try:
             if args.face_enhance:
-                _, _, output = face_enhancer.enhance(img, has_aligned=False, only_center_face=False, paste_back=True)
+                frame_bar.reset(total=1)
+                _, _, output = face_enhancer.enhance(
+                    img, has_aligned=False, only_center_face=False, paste_back=True)
+                frame_bar.update(1)
             else:
-                output, _ = upsampler.enhance(img, outscale=args.outscale)
+                output, _ = upsampler.enhance(img, outscale=args.outscale, progress_bar=frame_bar)
         except RuntimeError as error:
+            frame_bar.set_description(f'Frame {pbar.n + 1} (error)')
             print('Error', error)
             print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
         else:
-            writer.write_frame(output)
+            if output is not None:
+                writer.write_frame(output)
+        finally:
+            frame_bar.close()
 
         torch.cuda.synchronize(device)
         pbar.update(1)
