@@ -4,6 +4,7 @@ import glob
 import os
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils.download_util import load_file_from_url
+from tqdm import tqdm
 
 from realesrgan import RealESRGANer
 from realesrgan.archs.srvgg_arch import SRVGGNetCompact
@@ -130,36 +131,45 @@ def main():
     else:
         paths = sorted(glob.glob(os.path.join(args.input, '*')))
 
-    for idx, path in enumerate(paths):
-        imgname, extension = os.path.splitext(os.path.basename(path))
-        print('Testing', idx, imgname)
+    with tqdm(total=len(paths), desc='Total Files', unit='file') as total_bar:
+        for path in paths:
+            imgname, extension = os.path.splitext(os.path.basename(path))
+            total_bar.set_postfix_str(imgname)
 
-        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-        if len(img.shape) == 3 and img.shape[2] == 4:
-            img_mode = 'RGBA'
-        else:
-            img_mode = None
+            img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+            if len(img.shape) == 3 and img.shape[2] == 4:
+                img_mode = 'RGBA'
+            else:
+                img_mode = None
 
-        try:
-            if args.face_enhance:
-                _, _, output = face_enhancer.enhance(img, has_aligned=False, only_center_face=False, paste_back=True)
-            else:
-                output, _ = upsampler.enhance(img, outscale=args.outscale)
-        except RuntimeError as error:
-            print('Error', error)
-            print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
-        else:
-            if args.ext == 'auto':
-                extension = extension[1:]
-            else:
-                extension = args.ext
-            if img_mode == 'RGBA':  # RGBA images should be saved in png format
-                extension = 'png'
-            if args.suffix == '':
-                save_path = os.path.join(args.output, f'{imgname}.{extension}')
-            else:
-                save_path = os.path.join(args.output, f'{imgname}_{args.suffix}.{extension}')
-            cv2.imwrite(save_path, output)
+            output = None
+            with tqdm(total=1, desc=f'{imgname}', unit='tile', leave=False) as file_bar:
+                try:
+                    if args.face_enhance:
+                        file_bar.reset(total=1)
+                        _, _, output = face_enhancer.enhance(
+                            img, has_aligned=False, only_center_face=False, paste_back=True)
+                        file_bar.update(1)
+                    else:
+                        output, _ = upsampler.enhance(img, outscale=args.outscale, progress_bar=file_bar)
+                except RuntimeError as error:
+                    file_bar.set_description(f'{imgname} (error)')
+                    print('Error', error)
+                    print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
+            if output is not None:
+                if args.ext == 'auto':
+                    extension = extension[1:]
+                else:
+                    extension = args.ext
+                if img_mode == 'RGBA':  # RGBA images should be saved in png format
+                    extension = 'png'
+                if args.suffix == '':
+                    save_path = os.path.join(args.output, f'{imgname}.{extension}')
+                else:
+                    save_path = os.path.join(args.output, f'{imgname}_{args.suffix}.{extension}')
+                cv2.imwrite(save_path, output)
+
+            total_bar.update(1)
 
 
 if __name__ == '__main__':
