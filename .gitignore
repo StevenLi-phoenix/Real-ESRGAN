@@ -8,6 +8,7 @@ tmp/*
 weights/*
 gfpgan/weights/*
 
+
 version.py
 
 # Byte-compiled / optimized / DLL files
